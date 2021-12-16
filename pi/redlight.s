@@ -84,6 +84,13 @@ main:
     bl      _direction_green
     bl      _direction_red
     bl      _direction_input
+
+    mov     R0, #0
+    bl      _set_green
+
+    mov     R0, #1
+    bl      _set_red
+
     mov     r0, #0               @ 0 = success
     mov     r7, #1
     svc     #0
@@ -210,13 +217,49 @@ _direction_input:
     pop     {pc}
 
 /* --- END OF DIRECTION FUNCTIONS */
-/* 
-Read from GPIO  
-    R0: PIN,
-    R1: Result State
-*/
-_read_gpio:
-    nop
+
+
+/* --- GPIO SET FUNCTIONS */
+@ R0 = 0/1 for on / off
+_set_green:
+    push    {lr}
+    /* Open gpio export path file */
+    mov     r6, r0      @ Unload paramter in R0 into R6
+    ldr     r0, =path_gpio_val_green
+    mov     r7, #5
+    mov     r1, #777      @ Set flags to 2 (RW)
+    svc     #0
+    mov     r4,r0
+    
+    /* Write to GPIO file  */
+    add     r6, #48     @Convert 0/1 to "0/1"
+    ldr     r1, =Buf
+    str     r6, [r1]
+    mov     r2, #1      @ Set len to 1 byte
+    mov     r7, #4      @ Syscal 4, write
+    svc     #0
+    bl      _fs_close
+    pop     {pc}
+
+_set_red:
+    push    {lr}
+    /* Open gpio export path file */
+    mov     r6, r0      @ Unload paramter in R0 into R6
+    ldr     r0, =path_gpio_val_red
+    mov     r7, #5
+    mov     r1, #777      @ Set flags to 2 (RW)
+    svc     #0
+    mov     r4,r0
+    
+    /* Write to GPIO file  */
+    add     r6, #48     @Convert 0/1 to "0/1"
+    ldr     r1, =Buf
+    str     r6, [r1]
+    mov     r2, #1      @ Set len to 1 byte
+    mov     r7, #4      @ Syscal 4, write
+    svc     #0
+    bl      _fs_close
+    pop     {pc}
 
 /* Generates a random 1 byte number and stores the result in the address in R1 */
 _genradom:
