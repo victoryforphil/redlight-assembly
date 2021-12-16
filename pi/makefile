@@ -5,7 +5,7 @@ redlight: redlight.o
 	gcc -o $@ $+
 
 redlight.o: redlight.s
-	as -o $@ $<
+	as -g -o $@ $<
 
 clean:
 	rm -rf redlight *.o
