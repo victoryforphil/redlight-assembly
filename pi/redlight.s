@@ -2,12 +2,12 @@
 .data
 @ See /usr/include/arm-linux-gnueabihf/asm/unistd.h
 @ See /usr/include/arm-linux-gnueabihf/bits/fcntl-linux.h
-    .equ open,       5
-         .equ Rd,   02
-    .equ read,       3
+.equ open,       5
+.equ Rd,   02
+.equ read,       3
     
-    .equ close,      6
-    .equ exit,       1
+.equ close,      6
+.equ exit,       1
 .equ INPUT, 0
 .equ OUTPUT, 1
 .equ LOW, 0
@@ -16,13 +16,21 @@
 @----------------------------------
 
 welcome_mesage:
-    .asciz "Welcome to Redlight in ARM ASM!\nTest\n"
+    .asciz "Welcome to Redlight in ARM ASM!\n Game starting in 10s\n"
 len = . - welcome_mesage
 
 
 msg_new_round:
     .asciz "New Round!\n"
 len_new_round = . - msg_new_round
+
+msg_game_over_won:
+    .asciz "Game Over, you won!\n"
+len_game_over_won= . - msg_game_over_won
+
+msg_game_over_lost:
+    .asciz "====== MOVEMENT ====== \n Game Over, you lost :( !\n"
+len_game_over_lost = . - msg_game_over_lost
 
 dir_file:
     .asciz "/dev/urandom"
@@ -98,12 +106,17 @@ main:
     bl      _direction_red
     bl      _direction_input
   
-    mov R1, #0
+    ldr     r0, =#10000
+    bl      delay
+
+    mov      r1, #0
     bl      _set_red
-
-
+    
+    mov      r1, #0
+    bl      _set_green
 
     bl      _game_loop
+
 
     mov     r0, #0               @ 0 = success
     mov     r7, #1
@@ -111,55 +124,72 @@ main:
 
     pop {pc}
    
-
 _game_loop:
-    push {lr}
-    mov  R10, #10 @ play 5 rounds
+    push    {lr}
+    mov     r10, #5 @ play 5 rounds
 _game_loop_tick:
-    cmp R10, #0
-    ble _game_loop_exit
-    bl _print_new_round
-    mov R0, #1
-    bl _set_green
-    mov R0, #0
-    bl _set_red
+    cmp     r10, #0
+    ble     _game_loop_exit
+    bl      _print_new_round
+    mov     r0, #1
+    bl      _set_green
+    mov      r0, #0
+    bl      _set_red
 
-    bl _genradom
+    bl      _genradom
    
-    subs    R10, R10, #1
-    orr     r1, r1, #2 @ Ensures 1s at min
-    and     r1, r1, #6 @ Cap at 6s (remove first bits)
-    mov     r1, r1, LSL #6 @Multipel by 1024 (s)
+    subs    r10, r10, #1
+    orr     r1, r1, #2    @ Ensures 1s at min
+    and     r1, r1, #4      @ Cap at 6s (remove first bits)
+    mov     r1, r1, LSL #10  @ Multipel by 1024 (s)
     mov     r0, r1
     bl      delay
+    mov      r0, #0
+    bl      _set_green
+    bl      _check_movement   @ RED LIGHT! check for movement.
+    cmp     r7, #1
+    beq     _game_lost
     bal     _game_loop_tick
 
 _game_loop_exit:
+    bl _print_win
+    mov r2, #0 @ lost flag
     pop {pc}
 
+_game_lost:
+    push {lr}
+    bl _print_lost
+    mov r2, #1 @ lost flag
+    pop {pc}
 
 _check_movement:
     push    {lr}
-    mov      R0, #1
+
+    // Set Color to red  
+    mov      r0, #1
     bl      _set_red
-    mov     R8, #50   @ Check for 5s (50 * 100)
-    mov     R9, #0
-_check_movement_loop:
-    cmp     R9, R8
-    bge     _check_exit
-    bl      _read_input
-    bl      _set_red
-   
-    ldr     R0, =#100
+    ldr     r0, =#3100
     bl      delay
-    add     R9, R9, #1
+    // Setup Loop conditions
+    mov     r8, #20   @ Check for 2s (20 * 100)
+    mov     r9, #0
+_check_movement_loop:
+    cmp     r9, r8
+    bge     _check_exit
+    // Delay 1s before checking, allow for sensor error
+    ldr     r0, =#100
+    bl      delay
+    
+    bl      _read_input
+    mov     r7, r0
+    cmp     r7, #1
+    beq     _check_exit
+
+    add     r9, r9, #1
     bal     _check_movement_loop
     
 _check_exit:
     pop {pc} 
-
-
-   
 
 _print_welcome:
     push    {lr}
@@ -171,9 +201,32 @@ _print_new_round:
     push    {lr}
     ldr     r0, =msg_new_round
     bl      printf
-    ldr     r2, =len
+    ldr     r2, =len_new_round
     pop     {pc}
 
+_print_win:
+    push    {lr}
+    ldr     r0, =msg_game_over_won
+    bl      printf
+    ldr     r2, =len_game_over_won
+
+    mov     r0, #1
+    bl      _set_red
+
+    mov     r0, #1
+    bl      _set_green
+    pop     {pc}
+_print_lost:
+    push    {lr}
+    ldr     r0, =msg_game_over_lost
+    ldr     r2, =len_game_over_lost
+    bl      printf
+    mov     r0, #0
+    bl      _set_red
+
+    mov     r0, #0
+    bl      _set_green
+    pop     {pc}
 /* --- EXPORT FUNCTIONS --- */
 _fs_open_export:
     push    {lr}
@@ -286,8 +339,8 @@ _direction_input:
 
     bl      _fs_close
 
-    mov R0, #WPI_SENSE_PIN
-    mov R1, #INPUT
+    mov r0, #WPI_SENSE_PIN
+    mov r1, #INPUT
     bl      pinMode
 
     pop     {pc}
@@ -295,11 +348,11 @@ _direction_input:
 /* --- END OF DIRECTION FUNCTIONS */
 
 /* --- GPIO SET/READ FUNCTIONS */
-@ R0 = 0/1 for on / off
+@ r0 = 0/1 for on / off
 _set_green:
     push    {lr}
     /* Open gpio export path file */
-    mov     r6, r0      @ Unload paramter in R0 into R6
+    mov     r6, r0      @ Unload paramter in r0 into r6
     ldr     r0, =path_gpio_val_green
     mov     r7, #5
     mov     r1, #777      @ Set flags to 2 (RW)
@@ -319,7 +372,7 @@ _set_green:
 _set_red:
     push    {lr}
     /* Open gpio export path file */
-    mov     r6, r0      @ Unload paramter in R0 into R6
+    mov     r6, r0      @ Unload paramter in r0 into r6
     ldr     r0, =path_gpio_val_red
     mov     r7, #5
     mov     r1, #777      @ Set flags to 2 (RW)
@@ -336,7 +389,7 @@ _set_red:
     bl      _fs_close
     pop     {pc}
 
-/* R0 hold result */
+/* r0 hold result */
 _read_input:
     push    {lr}
 	mov     r0, #WPI_SENSE_PIN
@@ -346,17 +399,17 @@ _read_input:
 // --- END OF SET/READ FUNCTIONS ---- ///
 
 
-/* Generates a random 1 byte number and stores the result in the address in R1 */
+/* Generates a random 1 byte number and stores the result in the address in r1 */
 _genradom:
-    ldr     r0, =dir_file   @ Save the pointer to the path (/dev/urandom) into R0
-    mov     r7, #5      @ Save the sycall 5 (open) to R7 for SVC Call
+    ldr     r0, =dir_file   @ Save the pointer to the path (/dev/urandom) into r0
+    mov     r7, #5      @ Save the sycall 5 (open) to r7 for SVC Call
     mov     r1, #0       @ Set flags (0=read)
     svc     #0          @ Call Open SysCall
     mov     r4, r0      @ Save file descriptor in R4
 
-    ldr     r1, =Buf    @ Save buffer pointer to R1
-    mov     r2, #1      @ Set R2 (len) to 1 for 1 byte
-    mov     r7, #3      @ Set R7 (syscal) to 3 for read
+    ldr     r1, =Buf    @ Save buffer pointer to r1
+    mov     r2, #1      @ Set r2 (len) to 1 for 1 byte
+    mov     r7, #3      @ Set r7 (syscal) to 3 for read
     svc     #0          @ Execute SysCall for Open
 
     mov    r0, r4               @ move fd in r0
@@ -375,11 +428,4 @@ _fs_close:
     mov    r7, #close           @ num for close
     svc    #0                   @ OS closes file
     pop {pc}
-exit:
-
-     pop    {r4, r5, r7, lr}     @ folowing AAPCS
-     bx     lr                   @ Exit if use gcc as linker
-
-
-addr_ : .word Buf
 
