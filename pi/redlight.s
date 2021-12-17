@@ -1,36 +1,33 @@
-@----------------------------------
+/* Define useful shortcuts */
 .data
-@ See /usr/include/arm-linux-gnueabihf/asm/unistd.h
-@ See /usr/include/arm-linux-gnueabihf/bits/fcntl-linux.h
-.equ open,       5
-.equ Rd,   02
-.equ read,       3
+.equ open,      5
+.equ Rd,        02
+.equ read,      3
     
-.equ close,      6
-.equ exit,       1
-.equ INPUT, 0
-.equ OUTPUT, 1
-.equ LOW, 0
-.equ HIGH, 1
+.equ close,     6
+.equ exit,      1
+.equ INPUT,     0
+.equ OUTPUT,    1
+.equ LOW,       0
+.equ HIGH,      1
 .equ WPI_SENSE_PIN, 7
-@----------------------------------
 
-welcome_mesage:
+msg_welcome:
     .asciz "Welcome to Redlight in ARM ASM!\n Game starting in 10s\n"
-len = . - welcome_mesage
+len_welcome = . - msg_welcome
 
 
 msg_new_round:
     .asciz "New Round!\n"
-len_new_round = . - msg_new_round
+len_welcome_new_round = . - msg_new_round
 
 msg_game_over_won:
     .asciz "Game Over, you won!\n"
-len_game_over_won= . - msg_game_over_won
+len_welcome_game_over_won= . - msg_game_over_won
 
 msg_game_over_lost:
     .asciz "====== MOVEMENT ====== \n Game Over, you lost :( !\n"
-len_game_over_lost = . - msg_game_over_lost
+len_welcome_game_over_lost = . - msg_game_over_lost
 
 dir_file:
     .asciz "/dev/urandom"
@@ -39,7 +36,7 @@ dir_file:
 GPIO SYS FS PATHS
 GPIO 3 - Red Light
 GPIO 2 - Green Light
-GPIO 0 - Motion Sensor
+GPIO 4 - Motion Sensor
  */
 .balign 4
 path_gpio_export:
@@ -78,7 +75,7 @@ path_gpio_val_input:
     .asciz "/sys/class/gpio/gpio4/value"
 
 .balign 4
-Buf:
+read_buf:
     .word 0 
 .balign 4
 format:
@@ -105,24 +102,27 @@ main:
     bl      _direction_green
     bl      _direction_red
     bl      _direction_input
-  
+    
+    //Wait 10s
     ldr     r0, =#10000
     bl      delay
 
+    //Set LED to off
     mov      r1, #0
     bl      _set_red
     
-    mov      r1, #0
+    //Set LED to off
+    mov      r1, #0   
     bl      _set_green
 
     bl      _game_loop
 
-
+    // Succesful Exit codes
     mov     r0, #0               @ 0 = success
     mov     r7, #1
     svc     #0
 
-    pop {pc}
+    pop     {pc}
    
 _game_loop:
     push    {lr}
@@ -136,31 +136,37 @@ _game_loop_tick:
     mov      r0, #0
     bl      _set_red
 
+    //Get Random MS delay
     bl      _genradom
-   
     subs    r10, r10, #1
     orr     r1, r1, #2    @ Ensures 1s at min
     and     r1, r1, #4      @ Cap at 6s (remove first bits)
     mov     r1, r1, LSL #10  @ Multipel by 1024 (s)
     mov     r0, r1
     bl      delay
+
+    // Turn off green
     mov      r0, #0
     bl      _set_green
+
+    // Start checking for movement
     bl      _check_movement   @ RED LIGHT! check for movement.
+
+    // See if movement check finished with a failure, or success
     cmp     r7, #1
-    beq     _game_lost
-    bal     _game_loop_tick
+    beq     _game_lost      @ if exit with failure, branch to lost
+    bal     _game_loop_tick @ else continue playing
 
 _game_loop_exit:
-    bl _print_win
-    mov r2, #0 @ lost flag
-    pop {pc}
+    bl      _print_win
+    mov     r2, #0      @ lost flag
+    pop     {pc}
 
 _game_lost:
-    push {lr}
-    bl _print_lost
-    mov r2, #1 @ lost flag
-    pop {pc}
+    push    {lr}
+    bl      _print_lost
+    mov     r2, #1      @ lost flag
+    pop     {pc}
 
 _check_movement:
     push    {lr}
@@ -193,22 +199,22 @@ _check_exit:
 
 _print_welcome:
     push    {lr}
-    ldr     r0, =welcome_mesage
+    ldr     r0, =msg_welcome
     bl      printf
-    ldr     r2, =len
+    ldr     r2, =len_welcome
     pop     {pc}
 _print_new_round:
     push    {lr}
     ldr     r0, =msg_new_round
     bl      printf
-    ldr     r2, =len_new_round
+    ldr     r2, =len_welcome_new_round
     pop     {pc}
 
 _print_win:
     push    {lr}
     ldr     r0, =msg_game_over_won
     bl      printf
-    ldr     r2, =len_game_over_won
+    ldr     r2, =len_welcome_game_over_won
 
     mov     r0, #1
     bl      _set_red
@@ -219,7 +225,7 @@ _print_win:
 _print_lost:
     push    {lr}
     ldr     r0, =msg_game_over_lost
-    ldr     r2, =len_game_over_lost
+    ldr     r2, =len_welcome_game_over_lost
     bl      printf
     mov     r0, #0
     bl      _set_red
@@ -241,12 +247,12 @@ _fs_open_export:
 _export_sensor:
     push {lr}
 
-    bl _fs_open_export
+    bl      _fs_open_export
     /* write pins to export init */
     mov     r6, #52      @load value of pin to export
-    ldr     r1, =Buf
+    ldr     r1, =read_buf
     str     r6, [r1]
-    mov     r2, #1      @ Set len to 1 byte
+    mov     r2, #1      @ Set len_welcome to 1 byte
     mov     r7, #4      @ Syscal 4, write
     svc     #0
     bl      _fs_close
@@ -255,13 +261,13 @@ _export_sensor:
 _export_green:
     push {lr}
     
-    bl _fs_open_export
+    bl      _fs_open_export
 
     /* write pins to export init */
     mov     r6, #50      @load value of pin to export
-    ldr     r1, =Buf
+    ldr     r1, =read_buf
     str     r6, [r1]
-    mov     r2, #1      @ Set len to 1 byte
+    mov     r2, #1      @ Set len_welcome to 1 byte
     mov     r7, #4      @ Syscal 4, write
     svc     #0
 
@@ -271,12 +277,12 @@ _export_green:
 _export_red:
     push {lr}
     
-    bl _fs_open_export
+    bl      _fs_open_export
     /* write pins to export init */
     mov     r6, #51      @load value of pin to export
-    ldr     r1, =Buf
+    ldr     r1, =read_buf
     str     r6, [r1]
-    mov     r2, #1      @ Set len to 1 byte
+    mov     r2, #1      @ Set len_welcome to 1 byte
     mov     r7, #4      @ Syscal 4, write
     svc     #0
 
@@ -296,7 +302,7 @@ _direction_green:
     mov     r4,r0
 
     ldr     r1, =val_gpio_dir_out
-    mov     r2, #3      @ Set len to 1 byte
+    mov     r2, #3      @ Set len_welcome to 1 byte
     mov     r7, #4      @ Syscal 4, write
     svc     #0
 
@@ -313,7 +319,7 @@ _direction_red:
     mov     r4,r0
 
     ldr     r1, =val_gpio_dir_out
-    mov     r2, #3      @ Set len to 1 byte
+    mov     r2, #3      @ Set len_welcome to 1 byte
     mov     r7, #4      @ Syscal 4, write
     svc     #0
 
@@ -333,14 +339,15 @@ _direction_input:
     mov     r4,r0
 
     ldr     r1, =val_gpio_dir_in
-    mov     r2, #2      @ Set len to 1 byte
+    mov     r2, #2      @ Set len_welcome to 1 byte
     mov     r7, #4      @ Syscal 4, write
     svc     #0
 
     bl      _fs_close
 
-    mov r0, #WPI_SENSE_PIN
-    mov r1, #INPUT
+    //Seting Wiring PI as well
+    mov     r0, #WPI_SENSE_PIN
+    mov     r1, #INPUT
     bl      pinMode
 
     pop     {pc}
@@ -361,9 +368,9 @@ _set_green:
     
     /* Write to GPIO file  */
     add     r6, #48     @Convert 0/1 to "0/1"
-    ldr     r1, =Buf
+    ldr     r1, =read_buf
     str     r6, [r1]
-    mov     r2, #1      @ Set len to 1 byte
+    mov     r2, #1      @ Set len_welcome to 1 byte
     mov     r7, #4      @ Syscal 4, write
     svc     #0
     bl      _fs_close
@@ -381,9 +388,9 @@ _set_red:
     
     /* Write to GPIO file  */
     add     r6, #48     @Convert 0/1 to "0/1"
-    ldr     r1, =Buf
+    ldr     r1, =read_buf
     str     r6, [r1]
-    mov     r2, #1      @ Set len to 1 byte
+    mov     r2, #1      @ Set len_welcome to 1 byte
     mov     r7, #4      @ Syscal 4, write
     svc     #0
     bl      _fs_close
@@ -401,25 +408,24 @@ _read_input:
 
 /* Generates a random 1 byte number and stores the result in the address in r1 */
 _genradom:
-    ldr     r0, =dir_file   @ Save the pointer to the path (/dev/urandom) into r0
-    mov     r7, #5      @ Save the sycall 5 (open) to r7 for SVC Call
-    mov     r1, #0       @ Set flags (0=read)
-    svc     #0          @ Call Open SysCall
-    mov     r4, r0      @ Save file descriptor in R4
+    ldr     r0, =dir_file       @ Save the pointer to the path (/dev/urandom) into r0
+    mov     r7, #5              @ Save the sycall 5 (open) to r7 for SVC Call
+    mov     r1, #0              @ Set flags (0=read)
+    svc     #0                  @ Call Open SysCall
+    mov     r4, r0              @ Save file descriptor in R4
 
-    ldr     r1, =Buf    @ Save buffer pointer to r1
-    mov     r2, #1      @ Set r2 (len) to 1 for 1 byte
-    mov     r7, #3      @ Set r7 (syscal) to 3 for read
-    svc     #0          @ Execute SysCall for Open
+    ldr     r1, =read_buf       @ Save read_buffer pointer to r1
+    mov     r2, #1              @ Set r2 (len_welcome) to 1 for 1 byte
+    mov     r7, #3              @ Set r7 (syscal) to 3 for read
+    svc     #0                  @ Execute SysCall for Open
 
     mov    r0, r4               @ move fd in r0
     mov    r7, #close           @ num for close
     svc    #0                   @ OS closes file
 
     ldr    r0, =format          @ adress of format
-    ldr    r1, =Buf             @ addr of byte red
+    ldr    r1, =read_buf             @ addr of byte red
     ldr    r1, [r1]             @ load byte 
-    #mov    r5, lr
     bx     lr
 
 _fs_close:
