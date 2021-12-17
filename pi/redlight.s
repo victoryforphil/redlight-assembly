@@ -8,13 +8,22 @@
     
     .equ close,      6
     .equ exit,       1
-
+.equ INPUT, 0
+.equ OUTPUT, 1
+.equ LOW, 0
+.equ HIGH, 1
+.equ WPI_SENSE_PIN, 7
 @----------------------------------
 
 welcome_mesage:
     .asciz "Welcome to Redlight in ARM ASM!\nTest\n"
 len = . - welcome_mesage
-.balign 4
+
+
+msg_new_round:
+    .asciz "New Round!\n"
+len_new_round = . - msg_new_round
+
 dir_file:
     .asciz "/dev/urandom"
 
@@ -38,7 +47,7 @@ path_gpio_dir_red:
 
 .balign 4
 path_gpio_dir_input:
-    .asciz "/sys/class/gpio/gpio0/direction"
+    .asciz "/sys/class/gpio/gpio4/direction"
 
 .balign 4
 val_gpio_dir_in:
@@ -58,7 +67,7 @@ path_gpio_val_red:
 
 .balign 4
 path_gpio_val_input:
-    .asciz "/sys/class/gpio/gpio0/value"
+    .asciz "/sys/class/gpio/gpio4/value"
 
 .balign 4
 Buf:
@@ -66,7 +75,9 @@ Buf:
 .balign 4
 format:
     .asciz "%3d\n"
-
+.balign 4
+rounds_left:
+    .word 0
 @----------------------------------
 
 .text
@@ -76,31 +87,89 @@ format:
 main:
 
     push   {r4, r5, r7, lr}     @ folowing AAPCS
-
+    
     bl      _print_welcome
+    bl      wiringPiSetup
+
     bl      _export_sensor
     bl      _export_green
     bl      _export_red
     bl      _direction_green
     bl      _direction_red
     bl      _direction_input
-
-    mov     R0, #0
-    bl      _set_green
-
-    mov     R0, #1
+  
+    mov R1, #0
     bl      _set_red
+
+
+
+    bl      _game_loop
 
     mov     r0, #0               @ 0 = success
     mov     r7, #1
     svc     #0
 
     pop {pc}
+   
 
+_game_loop:
+    push {lr}
+    mov  R10, #10 @ play 5 rounds
+_game_loop_tick:
+    cmp R10, #0
+    ble _game_loop_exit
+    bl _print_new_round
+    mov R0, #1
+    bl _set_green
+    mov R0, #0
+    bl _set_red
+
+    bl _genradom
+   
+    subs    R10, R10, #1
+    orr     r1, r1, #2 @ Ensures 1s at min
+    and     r1, r1, #6 @ Cap at 6s (remove first bits)
+    mov     r1, r1, LSL #6 @Multipel by 1024 (s)
+    mov     r0, r1
+    bl      delay
+    bal     _game_loop_tick
+
+_game_loop_exit:
+    pop {pc}
+
+
+_check_movement:
+    push    {lr}
+    mov      R0, #1
+    bl      _set_red
+    mov     R8, #50   @ Check for 5s (50 * 100)
+    mov     R9, #0
+_check_movement_loop:
+    cmp     R9, R8
+    bge     _check_exit
+    bl      _read_input
+    bl      _set_red
+   
+    ldr     R0, =#100
+    bl      delay
+    add     R9, R9, #1
+    bal     _check_movement_loop
+    
+_check_exit:
+    pop {pc} 
+
+
+   
 
 _print_welcome:
     push    {lr}
     ldr     r0, =welcome_mesage
+    bl      printf
+    ldr     r2, =len
+    pop     {pc}
+_print_new_round:
+    push    {lr}
+    ldr     r0, =msg_new_round
     bl      printf
     ldr     r2, =len
     pop     {pc}
@@ -121,7 +190,7 @@ _export_sensor:
 
     bl _fs_open_export
     /* write pins to export init */
-    mov     r6, #48      @load value of pin to export
+    mov     r6, #52      @load value of pin to export
     ldr     r1, =Buf
     str     r6, [r1]
     mov     r2, #1      @ Set len to 1 byte
@@ -164,7 +233,6 @@ _export_red:
 /* --- END OF EXPORT FUNCTIONS */
 
 /* --- DIRECTION FUNCTIONS */
-
 _direction_green:
     push    {lr}
     /* Open gpio export path file */
@@ -201,6 +269,9 @@ _direction_red:
 
 _direction_input:
     push    {lr}
+
+    @Wiring pi as well since reaidng from sysfs isnt working, time is money
+
     /* Open gpio export path file */
     ldr     r0, =path_gpio_dir_input
     mov     r7, #5
@@ -214,12 +285,16 @@ _direction_input:
     svc     #0
 
     bl      _fs_close
+
+    mov R0, #WPI_SENSE_PIN
+    mov R1, #INPUT
+    bl      pinMode
+
     pop     {pc}
 
 /* --- END OF DIRECTION FUNCTIONS */
 
-
-/* --- GPIO SET FUNCTIONS */
+/* --- GPIO SET/READ FUNCTIONS */
 @ R0 = 0/1 for on / off
 _set_green:
     push    {lr}
@@ -261,6 +336,16 @@ _set_red:
     bl      _fs_close
     pop     {pc}
 
+/* R0 hold result */
+_read_input:
+    push    {lr}
+	mov     r0, #WPI_SENSE_PIN
+	bl      digitalRead
+    pop     {pc}
+
+// --- END OF SET/READ FUNCTIONS ---- ///
+
+
 /* Generates a random 1 byte number and stores the result in the address in R1 */
 _genradom:
     ldr     r0, =dir_file   @ Save the pointer to the path (/dev/urandom) into R0
@@ -297,3 +382,4 @@ exit:
 
 
 addr_ : .word Buf
+

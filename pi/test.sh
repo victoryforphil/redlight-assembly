@@ -1,0 +1,1 @@
+g++ redlight.s -lwiringPi -g -o redlight

@@ -2,10 +2,10 @@
 all: redlight
 
 redlight: redlight.o
-	gcc -o $@ $+
+	gcc -lwiringPi -o $@ $+
 
 redlight.o: redlight.s
-	as -g -o $@ $<
+	gcc -lwiringPi -g  -o $@ $<
 
 clean:
 	rm -rf redlight *.o
